@@ -7,15 +7,46 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
 
 const IssuesURL = "https://api.github.com/search/issues"
 const PostIssue = "https://github.com/%s/%s/issues" //we can create issue for any repo
+
+const templ = `{{.TotalCount}} issues:
+     {{range .Items}}----------------------------------------
+     Number: {{.Number}}
+     User:   {{.User.Login}}
+     Title:  {{.Title | printf "%.64s"}}
+     Age:    {{.CreatedAt | daysAgo}} days
+     {{end}}`
+
+
+var issueList = template.Must(template.New("issuelist").Parse(`
+     <h1>{{.TotalCount}} issues</h1>
+     <table>
+     <tr style='text-align: left'>
+       <th>#</th>
+       <th>State</th>
+       <th>User</th>
+       <th>Title</th>
+     </tr>
+     {{range .Items}}
+     <tr>
+       <td><a href='{{.HTMLURL}}'>{{.Number}}</td>
+       <td>{{.State}}</td>
+       <td><a href='{{.User.HTMLURL}}'>{{.User.Login}}</a></td>
+       <td><a href='{{.HTMLURL}}'>{{.Title}}</a></td>
+     </tr>
+     {{end}}
+     </table>
+     `))
 
 
 type IssuesSearchResult struct {
@@ -31,6 +62,7 @@ type Issue struct {
 	CreatedAt time.Time `json:"created_at"`
 	Body      string    // in Markdown format
 }
+
 type User struct {
 	Login   string
 	HTMLURL string `json:"html_url"`
@@ -79,6 +111,11 @@ func CreateIssue_(issue CreateIssue, owner string,repo string) string {
 	return url
 }
 
+
+func daysAgo(t time.Time) int {
+	return int(time.Since(t).Hours() / 24)
+}
+
 // SearchIssues queries the GitHub issue tracker."
 func SearchIssues(terms []string) (*IssuesSearchResult, error) {
 	q := url.QueryEscape(strings.Join(terms, " "))
@@ -103,31 +140,51 @@ func SearchIssues(terms []string) (*IssuesSearchResult, error) {
 
 //curl https://api.github.com/search/issues?q=windows+label:bug+language:python+state:open&sort=created
 
+var report = template.Must(template.New("issuelist").
+	Funcs(template.FuncMap{"daysAgo": daysAgo}).
+	Parse(templ))
+
+
+
 func main() {
 	// command-line go run github.go is:open json decoder
 	// go run github.go windows label:bug language:python state:open
-	//result, err := SearchIssues(os.Args[1:])
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//
+
+	result, err := SearchIssues(os.Args[1:])
+	if err != nil {
+		log.Fatal(err)
+	}
+
+
 	//fmt.Printf("%d issues:\n", result.TotalCount)
 	//for _, item := range result.Items {
 	//	fmt.Printf("#%-5d %9.9s %.55s %s\n",
 	//		item.Number, item.User.Login, item.Title,item.HTMLURL)
 	//}
 
+	// command-line go run github_issues_tacking.go repo:golang/go commenter:gopherbot json encoder >issues.html
+	//go run github_issues_tacking.go repo:golang/go 3133 10535 >issues2.html
+
+	if err := issueList.Execute(os.Stdout, result); err != nil {
+		log.Fatal(err)
+	}
+
+	//if err := report.Execute(os.Stdout, result); err != nil {
+	//	log.Fatal(err)
+	//}
 
 	//Post Issue
 
-	var owner = "MDRCS"
-	var repo = "The-Go-Programming-Language"
-	var assignees = []string{owner}
-	var labels = []string{"labels"}
-	var issue = CreateIssue{"Found a bug","I'm having a problem with this.",assignees,1,labels}
-	CreateIssue_(issue,owner,repo)
+	//var owner = "MDRCS"
+	//var repo = "The-Go-Programming-Language"
+	//var assignees = []string{owner}
+	//var labels = []string{"labels"}
+	//var issue = CreateIssue{"Found a bug","I'm having a problem with this.",assignees,1,labels}
+	//CreateIssue_(issue,owner,repo)
 
 }
+
+// Post Json Model to create an issue
 
 //{
 //"title": "Found a bug",
